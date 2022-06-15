@@ -1,6 +1,5 @@
 
 # 1 Import modules for DAG
-
 # from asyncio import tasks
 from numpy import extract
 from airflow.modules import DAG
@@ -15,7 +14,7 @@ temp_api = "https://gorest.co.in/public/v2/users"
 
 # 2 SET default arguments
 default_args = {
-    'owner': 'airflow'
+    'owner': 'airflow',
     'depends_on_past': False,
     'email': ['airflow@example.com','ganesh@gmail.com'],
     'email_on_failure': False,
@@ -25,7 +24,7 @@ default_args = {
 }
 
 #6 define tasks related functions
-    def extract(**kwargs):
+def extract(**kwargs):
         ti =kwargs['ti']  #task_instance = ti
         response_API = requests.get(API)
         #print(response_API.status_code)
@@ -34,7 +33,7 @@ default_args = {
         ti.xcom_push('api_data',new_data)
 
 
-    def removeduplicate(**kwargs):
+def removeduplicate(**kwargs):
         ti =kwargs['ti']
         duplicate_data = ti.xcom_pull(task_ids = 'extract',key = 'api_data')
         
@@ -47,7 +46,7 @@ default_args = {
         ti.xcom_push('distinct_data', r_data)
 
 
-    def transform(**kwargs):
+def transform(**kwargs):
         ti =kwargs['ti'] 
         extracted_data = ti.xcom_pull(task_ids = 'removeduplicate',key = 'distinct_data')
         
@@ -56,7 +55,7 @@ default_args = {
             to_load = dict
         ti.xcom_push('total_data', to_load)
     
-    def load(**kwargs):
+def load(**kwargs):
         ti = kwargs['ti']
         load_data =ti.xcom_pull(tasks_ids = 'transform' , key = 'total_data')
         print(load_data)
@@ -115,7 +114,7 @@ with DAG(
     This computed value is then put into xcom, so that it can be processed by the next task.
     """ )  
 
-     transform_data = PythonOperator(
+    transform_data = PythonOperator(
         task_id='transform',
         python_collable=transform,
         provide_context =True
@@ -129,7 +128,7 @@ with DAG(
     from xcom and instead of saving it to end user review, just prints it out.
     """ )
 
-     load_data = PythonOperator(
+    load_data = PythonOperator(
         task_id='load',
         python_collable=load,
         provide_context =True
