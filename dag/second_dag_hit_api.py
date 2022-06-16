@@ -2,9 +2,9 @@
 # 1 Import modules for DAG
 
 # from asyncio import tasks
-from platform import python_branch
-from numpy import extract
-from sqlalchemy import DATE
+# from platform import python_branch
+# from numpy import extract
+# from sqlalchemy import DATE
 from airflow import DAG
 from datetime import timedelta,datetime
 from airflow.operators.python_operator import PythonOperator
