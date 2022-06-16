@@ -1,22 +1,30 @@
 
 # 1 Import modules for DAG
+
 # from asyncio import tasks
+from platform import python_branch
 from numpy import extract
-from airflow.modules import DAG
-from datetime import timedelta, datetime
-from airflow.operators.python import PythonOperator
+from sqlalchemy import DATE
+from airflow import DAG
+from datetime import timedelta,datetime
+from airflow.operators.python_operator import PythonOperator
 import requests
-import json
+import pandas as pd
+from datetime import date
+from datetime import timedelta
 
-
-API = "https://github.com/mathdroid/covid-19-api"
-temp_api = "https://gorest.co.in/public/v2/users"
-
+API_SUFFIX = ".csv"
+PATH = "C:\\Users\\GANESH\\Desktop\\airflowqq\\dags_check\\"
+API =  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/"
+today = date.today()
+yesterday = today - timedelta(days=1)
+DATE = yesterday.strftime("%m-%d-%Y")
 # 2 SET default arguments
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
     'email': ['airflow@example.com','ganesh@gmail.com'],
+    "start_date": datetime(2022, 6, 16),
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
@@ -24,41 +32,47 @@ default_args = {
 }
 
 #6 define tasks related functions
+
+
 def extract(**kwargs):
-        ti =kwargs['ti']  #task_instance = ti
-        response_API = requests.get(API)
-        #print(response_API.status_code)
-        data = response_API.text
-        new_data = json.loads(data)
-        ti.xcom_push('api_data',new_data)
-
-
-def removeduplicate(**kwargs):
-        ti =kwargs['ti']
-        duplicate_data = ti.xcom_pull(task_ids = 'extract',key = 'api_data')
+    ti =kwargs['ti']  #task_instance = ti
+    res=None
+    try:
+        res = requests.request('get', API+DATE+API_SUFFIX)
         
-        seen = []
-        for x in duplicate_data:
-            if x not in seen:
-                yield x
-                seen.append(x)
-        r_data = removeduplicate()
-        ti.xcom_push('distinct_data', r_data)
+    except Exception as e:
+        print(e) 
+    ti.xcom_push('api_data',res)
+
+
+
+
+def save(**kwargs):
+    ti =kwargs['ti']
+    response = ti.xcom_pull(task_ids = 'extract',key = 'api_data')
+    if response != None and response.status_code == 200:
+        with open(PATH+DATE+API_SUFFIX, "wb")as file: 
+            for line in response.iter_lines(delimiter=b'\\n'):
+                file.write(line)
+                print(f"SUCCESSFULLY DOWNLOAD: {DATE+API_SUFFIX}")
+    read_data_location = PATH+DATE+API_SUFFIX
+    ti.xcom_push('destination_data', read_data_location)
 
 
 def transform(**kwargs):
-        ti =kwargs['ti'] 
-        extracted_data = ti.xcom_pull(task_ids = 'removeduplicate',key = 'distinct_data')
-        
-        total_order_value = 0
-        for dict in extracted_data:
-            to_load = dict
-        ti.xcom_push('total_data', to_load)
-    
+    ti =kwargs['ti'] 
+    raw_data = ti.xcom_pull(task_ids = 'save',key = 'destination_data')
+    covid_data= pd.read_csv(raw_data)
+    covid_data['Active'] = covid_data['Confirmed'] - covid_data['Deaths'] - covid_data['Recovered']
+    result = covid_data.groupby('Country_Region')['Confirmed', 'Deaths', 'Recovered', 'Active'].sum().reset_index()
+    to_load = result
+    ti.xcom_push('filtered_data', to_load)
+
 def load(**kwargs):
-        ti = kwargs['ti']
-        load_data =ti.xcom_pull(tasks_ids = 'transform' , key = 'total_data')
-        print(load_data)
+    ti = kwargs['ti']
+    load_data =ti.xcom_pull(task_ids = 'transform' , key = 'filtered_data')
+    print(load_data)
+    load_data.to_csv(PATH+DATE+API_SUFFIX)
 
 
 # 3 Intial DAG
@@ -67,73 +81,46 @@ with DAG(
     'ETL_dag',  # dag_id
     description='This is my first DAG ',
     default_args=default_args,
-    schedule_intreval=timedelta(days=1),
-    start_time=datetime(2022-5-8),
+    schedule_interval='@daily' ,#timedelta(minutes=2),
     catchup=False,
     tags=['ETL'],
 ) as dag:
 
 # 4 perform Tasks
-    
 
     #task1
 
-    extract_task.doc_md = dedent( """\#### Extract task
-    A simple Extract task to get data ready for the rest api of the data pipeline.
-    In this case, getting data is simulated by reading from a rest api in form of JSON string.
-    This data is then put into xcom, so that it can be processed by the next task.
-    """ )
-
     extract_data = PythonOperator(
         task_id='extract',
-        python_collable=extract,
+        python_callable=extract,
         provide_context =True
     )
     
 
-    #task2
+    #task2 
 
-    remove_task.doc_md = dedent("""\
-    #### Remove task
-    A simple Remove task which takes data from xcom and remove redundent values.
-    This value is then put into xcom, so that it can be processed by the next task.
-    """ )  
-
-    removeduplicate_data = PythonOperator(
-        task_id='removeduplicate',
-        python_collable=removeduplicate,
+    save_data = PythonOperator(
+        task_id='save',
+        python_callable=save,
         provide_context =True
     )
     
     #task3
 
-    transform_task.doc_md = dedent("""\
-    #### Transform task
-    A simple Transform task which takes in the collection of order data from xcom
-    and computes the total data.
-    This computed value is then put into xcom, so that it can be processed by the next task.
-    """ )  
-
     transform_data = PythonOperator(
         task_id='transform',
-        python_collable=transform,
+        python_callable=transform,
         provide_context =True
     )
     
     #task4
 
-    load_task.doc_md = dedent("""\
-    #### Load task
-    A simple Load task which takes in the result of the Transform task, by reading it
-    from xcom and instead of saving it to end user review, just prints it out.
-    """ )
-
     load_data = PythonOperator(
         task_id='load',
-        python_collable=load,
+        python_callable=load,
         provide_context =True
     )
 
 #set_dependencies
 
-extract_data >> removeduplicate_data >> transform_data >> load_data
+extract_data >> save_data >> transform_data >> load_data
